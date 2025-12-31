@@ -3,6 +3,7 @@ import numpy as np
 import sys
 import json
 import os
+from pyzbar.pyzbar import decode
 
 # --- HILFSFUNKTIONEN ---
 def order_points(pts):
@@ -76,13 +77,41 @@ try:
         cv2.imwrite(temp_output_path, final_image)
         display_image_path = temp_output_path
 
+    # --- QR Codes im (entzerrten) Bild suchen und Lokalisieren ---
+    global_qr_data = {} # Für Infos ohne "aufgabe" (z.B. Name, Klasse)
+    local_qrs = []      # Für Infos mit "aufgabe", inkl. Position
+
+    try:
+        decoded_objects = decode(final_image)
+        for obj in decoded_objects:
+            qr_text = obj.data.decode("utf-8")
+            if qr_text:
+                try:
+                    data = json.loads(qr_text)
+                    # Position bestimmen (Mittelpunkt)
+                    # obj.rect ist ein Rect-Objekt (left, top, width, height)
+                    r = obj.rect
+                    cx = r.left + r.width / 2
+                    cy = r.top + r.height / 2
+                    
+                    if "aufgabe" in data:
+                        local_qrs.append({"data": data, "cx": cx, "cy": cy})
+                    else:
+                        # Merge in globale Daten
+                        global_qr_data.update(data)
+                except:
+                    # Falls kein JSON, ignorieren wir es hier der Einfachheit halber
+                    pass
+                
+    except Exception as qr_e:
+        pass
+    
     # Rechtecke im (neuen) Bild suchen
     gray_final = cv2.cvtColor(final_image, cv2.COLOR_BGR2GRAY)
     _, thresh_final = cv2.threshold(gray_final, 80, 255, cv2.THRESH_BINARY_INV)
     contours_content, _ = cv2.findContours(thresh_final, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    # WICHTIG: Sortieren! Wir wollen die Rechtecke von oben nach unten abarbeiten
-    # boundingBox liefert (x, y, w, h). Wir sortieren nach y (Index 1)
+    # Sortieren von oben nach unten
     contours_content = sorted(contours_content, key=lambda c: cv2.boundingRect(c)[1])
 
     rects = []
@@ -92,28 +121,49 @@ try:
     for cnt in contours_content:
         x, y, w, h = cv2.boundingRect(cnt)
         
-        # Filter (Größe und Randabstand)
+        # Filter
         is_too_big = w > (img_w * 0.9)
         is_edge = x < 5 or y < 5 or (x+w) > (img_w-5) or (y+h) > (img_h-5)
 
         if w > 20 and h > 20 and not is_too_big and not is_edge:
             if not is_contour_filled(cnt, thresh_final):
                 
-                # --- DAS IST NEU: AUSSCHNEIDEN & SPEICHERN ---
-                
-                # Numpy Slicing: Bild[y_start:y_ende, x_start:x_ende]
-                # Wir geben noch +/- 2 Pixel Rand weg, damit der schwarze Rahmen nicht mit drauf ist
+                # AUSSCHNEIDEN
                 roi = final_image[y+2 : y+h-2, x+2 : x+w-2]
                 
-                if roi.size > 0: # Sicherheitscheck
+                if roi.size > 0:
                     filename = f"ausschnitt_{crop_counter}.jpg"
                     save_path = os.path.join(crops_dir, filename)
                     cv2.imwrite(save_path, roi)
                     
+                    # --- MATCHING: Welcher lokale QR Code gehört hierzu? ---
+                    # Mittelpunkt des Ausschnitts
+                    crop_cx = x + w / 2
+                    crop_cy = y + h / 2
+                    
+                    # Finde nächsten lokalen QR Code
+                    closest_local_data = {}
+                    min_dist = float("inf")
+                    
+                    for lqr in local_qrs:
+                        # Euklidische Distanz
+                        dist = np.sqrt((crop_cx - lqr["cx"])**2 + (crop_cy - lqr["cy"])**2)
+                        
+                        # Wir können hier auch eine Schwelle einbauen, z.B. dist < 300 Pixel
+                        # Aber "der nächste" ist oft gut genug, wenn das Layout passt.
+                        if dist < min_dist:
+                            min_dist = dist
+                            closest_local_data = lqr["data"]
+                    
+                    # Kombiniere Global + Lokal
+                    merged_data = global_qr_data.copy()
+                    merged_data.update(closest_local_data)
+                    
                     rects.append({
                         "x": x, "y": y, "width": w, "height": h,
-                        "crop_path": save_path, # Wir merken uns den Pfad
-                        "name": filename
+                        "crop_path": save_path,
+                        "name": filename,
+                        "qr_data": merged_data  # Das fertige JSON für dieses Bild
                     })
                     crop_counter += 1
 

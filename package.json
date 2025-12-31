@@ -12,6 +12,7 @@
   "type": "commonjs",
   "dependencies": {
     "electron": "^39.2.7",
+    "piexifjs": "^1.0.6",
     "python-shell": "^5.0.0"
   }
 }
