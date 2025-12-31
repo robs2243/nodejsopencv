@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Scanner App</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #f0f0f0; }
+        .container { display: flex; gap: 20px; }
+        .main-view { flex: 2; }
+        .gallery-view { flex: 1; background: white; padding: 10px; height: 80vh; overflow-y: auto; border-radius: 8px; }
+        
+        canvas { border: 1px solid #ccc; max-width: 100%; }
+        
+        .crop-item { margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+        .crop-item img { max-width: 100%; border: 1px solid #ddd; }
+        .crop-label { font-size: 12px; color: #666; margin-top: 5px; }
+    </style>
+</head>
+<body>
+    <h1>Bild Scanner & Cropper</h1>
+    
+    <div style="margin-bottom: 20px;">
+        <input type="text" id="pathInput" value="C:/test/scan.jpg" style="width: 300px;">
+        <button onclick="startAnalysis()">Analysieren & Speichern</button>
+        <span id="status">Bereit</span>
+    </div>
+
+    <div class="container">
+        <div class="main-view">
+            <h3>Gesamtbild (Korrigiert)</h3>
+            <canvas id="visualizer"></canvas>
+        </div>
+
+        <div class="gallery-view">
+            <h3>Gespeicherte Ausschnitte</h3>
+            <div id="gallery"></div>
+        </div>
+    </div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+
+        function startAnalysis() {
+            const path = document.getElementById('pathInput').value;
+            document.getElementById('status').innerText = "Arbeite...";
+            ipcRenderer.send('analysiere-bild', path);
+        }
+
+        ipcRenderer.on('analyse-ergebnis', (event, data) => {
+            if (data.error) {
+                alert("Fehler: " + data.error);
+                return;
+            }
+            document.getElementById('status').innerText = `Fertig! ${data.rects.length} Bilder gespeichert in: ${data.crops_folder}`;
+            
+            drawMainImage(data);
+            showGallery(data.rects);
+        });
+
+        function drawMainImage(data) {
+            const canvas = document.getElementById('visualizer');
+            const ctx = canvas.getContext('2d');
+            const img = new Image();
+            img.onload = () => {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                ctx.drawImage(img, 0, 0);
+                
+                // Rahmen malen
+                ctx.strokeStyle = '#00FF00'; // Grün
+                ctx.lineWidth = 3;
+                data.rects.forEach((rect, index) => {
+                    ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+                    // Nummer dazu schreiben
+                    ctx.fillStyle = "blue";
+                    ctx.font = "bold 24px Arial";
+                    ctx.fillText(index + 1, rect.x + 5, rect.y + 25);
+                });
+            };
+            img.src = data.image + "?t=" + new Date().getTime();
+        }
+
+        function showGallery(rects) {
+            const container = document.getElementById('gallery');
+            container.innerHTML = ""; // Leeren
+
+            rects.forEach(rect => {
+                const div = document.createElement('div');
+                div.className = 'crop-item';
+                
+                const img = document.createElement('img');
+                img.src = rect.crop_path + "?t=" + new Date().getTime();
+                
+                const label = document.createElement('div');
+                label.className = 'crop-label';
+                label.innerText = rect.name;
+
+                div.appendChild(img);
+                div.appendChild(label);
+                container.appendChild(div);
+            });
+        }
+    </script>
+</body>
+</html>
