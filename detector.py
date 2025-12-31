@@ -132,7 +132,10 @@ try:
                 roi = final_image[y+2 : y+h-2, x+2 : x+w-2]
                 
                 if roi.size > 0:
-                    filename = f"ausschnitt_{crop_counter}.jpg"
+                    # Basisnamen der Eingabedatei holen (ohne Endung)
+                    base_name = os.path.splitext(os.path.basename(image_path))[0]
+                    filename = f"{base_name}_crop_{crop_counter}.jpg"
+                    
                     save_path = os.path.join(crops_dir, filename)
                     cv2.imwrite(save_path, roi)
                     
