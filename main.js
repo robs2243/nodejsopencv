@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { PythonShell } = require('python-shell');
@@ -8,10 +8,10 @@ let mainWindow;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
+    width: 1000,
+    height: 800,
     webPreferences: {
-      nodeIntegration: true,    // Erlaubt require in HTML (nur für einfache Tests)
+      nodeIntegration: true,    
       contextIsolation: false
     }
   });
@@ -20,6 +20,18 @@ function createWindow() {
 }
 
 app.whenReady().then(createWindow);
+
+// Handler für den Ordner-Auswahl-Dialog
+ipcMain.handle('open-folder-dialog', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory']
+    });
+    if (result.canceled) {
+        return null;
+    } else {
+        return result.filePaths[0];
+    }
+});
 
 // Hilfsfunktion für saubere Dateinamen
 function sanitize(str) {
