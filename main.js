@@ -84,6 +84,19 @@ ipcMain.on('analysiere-bild', async (event, inputPath) => {
         }
     }
 
+    // --- AUFRÄUMEN ---
+    // Da wir im Batch-Modus temp_corrected.jpg immer wieder überschreiben,
+    // löschen wir es am Ende einmalig.
+    try {
+        const tempFile = path.join(inputPath, "temp_corrected.jpg");
+        if (fs.existsSync(tempFile)) {
+            fs.unlinkSync(tempFile);
+            console.log("Temporäre Datei gelöscht:", tempFile);
+        }
+    } catch (cleanupErr) {
+        console.warn("Konnte temp_corrected.jpg nicht löschen:", cleanupErr);
+    }
+
     // Fertig! Sende das Ergebnis (alle gesammelten Rects) an die UI zur Anzeige
     // Wir faken hier ein "Gesamtergebnis" Objekt
     event.reply('analyse-ergebnis', {
