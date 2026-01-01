@@ -84,18 +84,18 @@ try:
         cv2.imwrite(temp_output_path, final_image)
         display_image_path = temp_output_path
 
-    # --- QR Codes im (entzerrten) Bild suchen und Lokalisieren ---
-    global_qr_data = {} # Für Infos ohne "aufgabe" (z.B. Name, Klasse)
-    local_qrs = []      # Für Infos mit "aufgabe", inkl. Position
-    debug_qrs = []      # Für Visualisierung in der GUI
+    # --- QR Codes im (entzerrten) Bild suchen und Lokalisieren (GLOBALER SCAN) ---
+    global_qr_data = {} 
+    local_qrs = []      
+    debug_qrs = []      
 
     try:
         decoded_objects = decode(final_image)
         for obj in decoded_objects:
             qr_text = obj.data.decode("utf-8")
             if qr_text:
-                # Debug Info speichern
                 r = obj.rect
+                # Debug Info speichern
                 debug_qrs.append({
                     "x": r.left, "y": r.top, "width": r.width, "height": r.height,
                     "text": qr_text
@@ -103,17 +103,18 @@ try:
 
                 try:
                     data = json.loads(qr_text)
-                    # Position bestimmen (Mittelpunkt)
-                    cx = r.left + r.width / 2
-                    cy = r.top + r.height / 2
-                    
+                    # Wir speichern top (y) und left (x) für die geometrische Regel
                     if "aufgabe" in data:
-                        local_qrs.append({"data": data, "cx": cx, "cy": cy})
+                        local_qrs.append({
+                            "data": data, 
+                            "y": r.top, 
+                            "x": r.left,
+                            "w": r.width,
+                            "h": r.height
+                        })
                     else:
-                        # Merge in globale Daten
                         global_qr_data.update(data)
                 except:
-                    # Falls kein JSON, ignorieren wir es hier der Einfachheit halber
                     pass
                 
     except Exception as qr_e:
@@ -142,44 +143,103 @@ try:
             if not is_contour_filled(cnt, thresh_final):
                 
                 # AUSSCHNEIDEN
-                roi = final_image[y+2 : y+h-2, x+2 : x+w-2]
+                margin = 10
+                roi = final_image[y+margin : y+h-margin, x+margin : x+w-margin]
                 
                 if roi.size > 0:
-                    # Basisnamen der Eingabedatei holen (ohne Endung)
                     base_name = os.path.splitext(os.path.basename(image_path))[0]
                     filename = f"{base_name}_crop_{crop_counter}.jpg"
                     
                     save_path = os.path.join(crops_dir, filename)
                     cv2.imwrite(save_path, roi)
                     
-                    # --- MATCHING: Welcher lokale QR Code gehört hierzu? ---
-                    # Mittelpunkt des Ausschnitts
-                    crop_cx = x + w / 2
-                    crop_cy = y + h / 2
+                    # --- MATCHING & RESCUE SCAN ---
+                    found_local_data = {}
                     
-                    # Finde nächsten lokalen QR Code
-                    closest_local_data = {}
-                    min_dist = float("inf")
+                    # 1. Prüfen: Haben wir schon einen passenden QR-Code in der globalen Liste?
+                    # Regel: QR Oberkante (qr.y) ist ca. 150px über Rechteck Oberkante (y)
+                    # Toleranz: +/- 30px
+                    target_qr_y = y - 150
+                    y_tolerance = 30
+                    
+                    best_match = None
                     
                     for lqr in local_qrs:
-                        # Euklidische Distanz
-                        dist = np.sqrt((crop_cx - lqr["cx"])**2 + (crop_cy - lqr["cy"])**2)
+                        # Vertikale Prüfung
+                        dist_y = abs(lqr["y"] - target_qr_y)
                         
-                        # Wir können hier auch eine Schwelle einbauen, z.B. dist < 300 Pixel
-                        # Aber "der nächste" ist oft gut genug, wenn das Layout passt.
-                        if dist < min_dist:
-                            min_dist = dist
-                            closest_local_data = lqr["data"]
+                        # Horizontale Prüfung (grob überlappend oder nah dran)
+                        # Mitte des Rechtecks vs Mitte des QR
+                        rect_cx = x + w / 2
+                        qr_cx = lqr["x"] + lqr["w"] / 2
+                        dist_x = abs(rect_cx - qr_cx)
+                        
+                        # Wir erlauben vertikal 30px Toleranz und horizontal, 
+                        # dass er nicht weiter weg ist als die halbe Breite + Puffer
+                        if dist_y <= y_tolerance and dist_x < (w + 100):
+                            best_match = lqr
+                            break # Den ersten passenden nehmen
                     
-                    # Kombiniere Global + Lokal
+                    if best_match:
+                        found_local_data = best_match["data"]
+                    
+                    else:
+                        # 2. RESCUE SCAN: Kein QR gefunden? Vielleicht zu blass!
+                        # Wir schneiden den erwarteten Bereich aus und verstärken den Kontrast.
+                        
+                        # ROI definieren: Wir suchen ca. bei y-150. 
+                        # Nehmen wir y-220 bis y-80 als Fenster.
+                        roi_y1 = max(0, y - 220)
+                        roi_y2 = max(0, y - 80)
+                        roi_x1 = max(0, x - 20)      # Etwas breiter als das Feld
+                        roi_x2 = min(img_w, x + w + 20)
+                        
+                        rescue_roi = final_image[roi_y1:roi_y2, roi_x1:roi_x2]
+                        
+                        if rescue_roi.size > 0:
+                            # Bildverbesserung: Graustufen + CLAHE (Contrast Limited Adaptive Histogram Equalization)
+                            gray_rescue = cv2.cvtColor(rescue_roi, cv2.COLOR_BGR2GRAY)
+                            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+                            enhanced_roi = clahe.apply(gray_rescue)
+                            
+                            # Nur zum Debuggen: Man könnte enhanced_roi hier speichern um zu sehen was er sieht
+                            # cv2.imwrite(os.path.join(crops_dir, f"debug_rescue_{crop_counter}.jpg"), enhanced_roi)
+
+                            try:
+                                rescue_decoded = decode(enhanced_roi)
+                                for r_obj in rescue_decoded:
+                                    r_text = r_obj.data.decode("utf-8")
+                                    if r_text:
+                                        # Gefunden!
+                                        try:
+                                            r_data = json.loads(r_text)
+                                            found_local_data = r_data
+                                            
+                                            # WICHTIG: Zur Debug-Liste hinzufügen, damit man den orangen Rahmen sieht!
+                                            # Koordinaten müssen zurückgerechnet werden auf das Gesamtbild
+                                            rr = r_obj.rect
+                                            debug_qrs.append({
+                                                "x": roi_x1 + rr.left,
+                                                "y": roi_y1 + rr.top,
+                                                "width": rr.width,
+                                                "height": rr.height,
+                                                "text": r_text + " (RESCUED!)"
+                                            })
+                                            break # Nur den ersten nehmen
+                                        except:
+                                            pass
+                            except:
+                                pass
+
+                    # Kombiniere Global + Lokal (egal ob normal gefunden oder rescued)
                     merged_data = global_qr_data.copy()
-                    merged_data.update(closest_local_data)
+                    merged_data.update(found_local_data)
                     
                     rects.append({
                         "x": x, "y": y, "width": w, "height": h,
                         "crop_path": save_path,
                         "name": filename,
-                        "qr_data": merged_data  # Das fertige JSON für dieses Bild
+                        "qr_data": merged_data
                     })
                     crop_counter += 1
 
