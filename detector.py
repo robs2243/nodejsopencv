@@ -41,8 +41,15 @@ try:
     image_path = sys.argv[1]
     folder_path = os.path.dirname(image_path)
     
+    # Standard Ordner Name
+    crops_folder_name = "ausschnitte"
+    
+    # Prüfen auf DEBUG Flag
+    if len(sys.argv) > 2 and sys.argv[2] == "DEBUG":
+        crops_folder_name = "debug"
+
     # Ordner für die Ausschnitte erstellen
-    crops_dir = os.path.join(folder_path, "ausschnitte")
+    crops_dir = os.path.join(folder_path, crops_folder_name)
     if not os.path.exists(crops_dir):
         os.makedirs(crops_dir)
 
@@ -80,17 +87,23 @@ try:
     # --- QR Codes im (entzerrten) Bild suchen und Lokalisieren ---
     global_qr_data = {} # Für Infos ohne "aufgabe" (z.B. Name, Klasse)
     local_qrs = []      # Für Infos mit "aufgabe", inkl. Position
+    debug_qrs = []      # Für Visualisierung in der GUI
 
     try:
         decoded_objects = decode(final_image)
         for obj in decoded_objects:
             qr_text = obj.data.decode("utf-8")
             if qr_text:
+                # Debug Info speichern
+                r = obj.rect
+                debug_qrs.append({
+                    "x": r.left, "y": r.top, "width": r.width, "height": r.height,
+                    "text": qr_text
+                })
+
                 try:
                     data = json.loads(qr_text)
                     # Position bestimmen (Mittelpunkt)
-                    # obj.rect ist ein Rect-Objekt (left, top, width, height)
-                    r = obj.rect
                     cx = r.left + r.width / 2
                     cy = r.top + r.height / 2
                     
@@ -170,10 +183,17 @@ try:
                     })
                     crop_counter += 1
 
+    # Response aufbereiten: Pfade für JSON/JS anpassen (Slashes statt Backslashes)
+    rects_fixed = []
+    for r in rects:
+        r["crop_path"] = r["crop_path"].replace("\\", "/")
+        rects_fixed.append(r)
+        
     response = {
-        "image": display_image_path,
-        "rects": rects,
-        "crops_folder": crops_dir
+        "image": display_image_path.replace("\\", "/"),
+        "rects": rects_fixed,
+        "crops_folder": crops_dir.replace("\\", "/"),
+        "debug_qrs": debug_qrs
     }
     print(json.dumps(response))
 

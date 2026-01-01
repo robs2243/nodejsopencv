@@ -33,6 +33,18 @@ ipcMain.handle('open-folder-dialog', async () => {
     }
 });
 
+// NEU: Handler um Dateiliste zu holen (für Debug Blättern)
+ipcMain.handle('get-files-in-folder', async (event, folderPath) => {
+    try {
+        const files = fs.readdirSync(folderPath);
+        // Filtern nach Bildern und Sortieren
+        return files.filter(f => f.match(/\.(jpg|jpeg|png)$/i)).sort();
+    } catch (e) {
+        console.error("Fehler beim Lesen des Ordners:", e);
+        return [];
+    }
+});
+
 // Hilfsfunktion für saubere Dateinamen
 function sanitize(str) {
     if (!str) return "";
@@ -42,8 +54,8 @@ function sanitize(str) {
               .replace(/[^a-z0-9]/g, '_');
 }
 
-ipcMain.on('analysiere-bild', async (event, inputPath) => {
-    console.log("Input:", inputPath);
+ipcMain.on('analysiere-bild', async (event, inputPath, options = {}) => {
+    console.log("Input:", inputPath, "Options:", options);
     let filesToProcess = [];
 
     try {
@@ -66,16 +78,18 @@ ipcMain.on('analysiere-bild', async (event, inputPath) => {
     console.log(`Starte Batch mit ${filesToProcess.length} Bildern.`);
     let processedCount = 0;
     let allResults = [];
+    let lastData = null; // Speichert das letzte vollständige Ergebnis von Python
 
     // Funktion zur sequenziellen Abarbeitung (Rekursion oder Loop mit await)
     // Wir nehmen eine asynchrone Loop Funktion
     for (const imagePath of filesToProcess) {
         processedCount++;
-        // Status an UI senden (optionales Feature, nutzen wir hier über console log oder erweitertes Event)
-        // event.reply('status-update', `Verarbeite Bild ${processedCount} von ${filesToProcess.length}`);
         
         try {
-            const result = await processSingleImage(imagePath);
+            // Wir reichen das isDebug Flag weiter an die einzelne Bildverarbeitung
+            const isDebug = options && options.isDebug;
+            const result = await processSingleImage(imagePath, isDebug);
+            lastData = result; 
             if (result && result.rects) {
                 allResults.push(...result.rects);
             }
@@ -83,38 +97,58 @@ ipcMain.on('analysiere-bild', async (event, inputPath) => {
             console.error(`Fehler bei ${imagePath}:`, err);
         }
     }
+    
+    // ... REST DER FUNKTION BLEIBT GLEICH ...
+    // (Achtung: Ich muss hier aufpassen, dass ich den Rest der Funktion nicht lösche beim Replacen)
+    // Da "replace" Kontext braucht, passe ich processSingleImage separat an,
+    // oder ich muss den ganzen Block ersetzen.
+    
+    // Da ich oben nur den Loop Body geändert habe, mache ich das unten weiter.
+    // Aber warte, processSingleImage Signatur muss sich ändern.
 
     // --- AUFRÄUMEN ---
-    // Da wir im Batch-Modus temp_corrected.jpg immer wieder überschreiben,
-    // löschen wir es am Ende einmalig.
     try {
-        const tempFile = path.join(inputPath, "temp_corrected.jpg");
-        if (fs.existsSync(tempFile)) {
-            fs.unlinkSync(tempFile);
-            console.log("Temporäre Datei gelöscht:", tempFile);
+        let folderPath = inputPath;
+        if (!fs.statSync(inputPath).isDirectory()) {
+            folderPath = path.dirname(inputPath);
+        }
+
+        // NUR löschen wenn wir im echten Batch Modus sind
+        if (filesToProcess.length > 1) {
+            const tempFile = path.join(folderPath, "temp_corrected.jpg");
+            if (fs.existsSync(tempFile)) {
+                fs.unlinkSync(tempFile);
+                console.log("Temporäre Datei gelöscht:", tempFile);
+            }
         }
     } catch (cleanupErr) {
         console.warn("Konnte temp_corrected.jpg nicht löschen:", cleanupErr);
     }
 
-    // Fertig! Sende das Ergebnis (alle gesammelten Rects) an die UI zur Anzeige
-    // Wir faken hier ein "Gesamtergebnis" Objekt
+    let finalImage = (lastData && lastData.image) ? lastData.image : filesToProcess[filesToProcess.length-1];
+
     event.reply('analyse-ergebnis', {
-        image: filesToProcess[filesToProcess.length-1], // Zeige das letzte Bild als Hintergrund
+        image: finalImage,
         rects: allResults,
-        crops_folder: "Batch abgeschlossen",
-        isBatch: true,
+        debug_qrs: (lastData ? lastData.debug_qrs : []),
+        crops_folder: (lastData ? lastData.crops_folder : "Batch"),
+        isBatch: (filesToProcess.length > 1),
         count: processedCount
     });
 });
 
-function processSingleImage(imagePath) {
+function processSingleImage(imagePath, isDebug = false) {
     return new Promise((resolve, reject) => {
+        let pyArgs = [imagePath];
+        if (isDebug) {
+            pyArgs.push("DEBUG");
+        }
+
         let options = {
             mode: 'text',
             pythonPath: 'python', 
             scriptPath: __dirname,
-            args: [imagePath]
+            args: pyArgs
         };
 
         PythonShell.run('detector.py', options).then(messages => {

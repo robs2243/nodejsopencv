@@ -12,6 +12,8 @@
             --text: #1e293b;
             --text-secondary: #64748b;
             --border: #e2e8f0;
+            --debug-red: #ef4444;
+            --debug-orange: #f97316;
         }
 
         body {
@@ -27,10 +29,7 @@
         }
 
         /* --- Header & Controls --- */
-        header {
-            margin-bottom: 20px;
-        }
-
+        header { margin-bottom: 20px; }
         h1 { margin: 0 0 5px 0; font-size: 24px; }
         p { margin: 0; color: var(--text-secondary); font-size: 14px; }
 
@@ -64,19 +63,19 @@
             cursor: pointer;
             transition: background 0.2s;
             font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }
 
-        .btn-secondary {
-            background: #e2e8f0;
-            color: var(--text);
-        }
+        .btn-secondary { background: #e2e8f0; color: var(--text); }
         .btn-secondary:hover { background: #cbd5e1; }
 
-        .btn-primary {
-            background: var(--primary);
-            color: white;
-        }
+        .btn-primary { background: var(--primary); color: white; }
         .btn-primary:hover { background: var(--primary-hover); }
+        
+        .btn-debug { background: #334155; color: white; }
+        .btn-debug:hover { background: #475569; }
 
         #status {
             margin-left: auto;
@@ -85,14 +84,22 @@
             color: var(--text-secondary);
         }
 
-        /* --- Gallery Grid --- */
-        .gallery-container {
+        /* --- Views Container --- */
+        .content-area {
             flex: 1;
-            overflow-y: auto;
+            position: relative;
+            overflow: hidden;
             background: var(--surface);
             border-radius: 10px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        /* --- Gallery View --- */
+        #galleryView {
+            height: 100%;
+            overflow-y: auto;
             padding: 20px;
+            box-sizing: border-box;
         }
 
         .gallery-grid {
@@ -108,130 +115,268 @@
             transition: transform 0.2s, box-shadow 0.2s;
             background: white;
         }
-
-        .card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-
+        .card:hover { transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        
         .card-img-wrapper {
             height: 140px;
             background: #f1f5f9;
+            display: flex; align-items: center; justify-content: center;
+            overflow: hidden; border-bottom: 1px solid var(--border);
+        }
+        .card img { width: 100%; height: 100%; object-fit: contain; }
+        .card-body { padding: 10px; }
+        .card-title { font-size: 12px; font-weight: 600; margin-bottom: 4px; color: var(--text); word-break: break-all; }
+        .card-meta { font-size: 11px; color: var(--text-secondary); }
+
+        /* --- Debug View --- */
+        #debugView {
+            height: 100%;
+            display: none; /* Hidden by default */
+            flex-direction: column;
+        }
+
+        .debug-toolbar {
+            padding: 10px;
+            border-bottom: 1px solid var(--border);
             display: flex;
             align-items: center;
+            justify-content: space-between;
+            background: #f8fafc;
+        }
+
+        .debug-canvas-container {
+            flex: 1;
+            overflow: auto;
+            padding: 20px;
+            background: #333; /* Dark background for contrast */
+            display: flex;
             justify-content: center;
-            overflow: hidden;
-            border-bottom: 1px solid var(--border);
         }
 
-        .card img {
-            width: 100%;
-            height: 100%;
-            object-fit: contain; /* oder cover, je nach Geschmack */
+        canvas {
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            max-width: 100%;
         }
 
-        .card-body {
-            padding: 10px;
-        }
-
-        .card-title {
-            font-size: 12px;
-            font-weight: 600;
-            word-break: break-all;
-            margin-bottom: 4px;
-            color: var(--text);
-        }
-
-        .card-meta {
-            font-size: 11px;
-            color: var(--text-secondary);
-        }
-
-        .empty-state {
-            text-align: center;
-            color: var(--text-secondary);
-            margin-top: 50px;
-        }
+        .empty-state { text-align: center; color: var(--text-secondary); margin-top: 50px; }
 
     </style>
 </head>
 <body>
 
     <header>
-        <h1>Dokumenten Batch-Scanner</h1>
+        <h1>Smart Document Scanner</h1>
         <p>Automatische Erkennung, Beschneidung und Benennung per QR-Code</p>
     </header>
 
     <div class="controls">
-        <input type="text" id="pathInput" readonly value="D:/OneDrive - Heinrich-Schickhardt-Schule/proggen/nodejsopencv" placeholder="Bitte Ordner wählen...">
-        <button class="btn-secondary" onclick="selectFolder()">📂 Ordner wählen</button>
-        <button class="btn-primary" onclick="startAnalysis()">▶ Start Batch</button>
+        <input type="text" id="pathInput" readonly value="D:/OneDrive - Heinrich-Schickhardt-Schule/proggen/nodejsopencv" placeholder="Ordner wählen...">
+        <button class="btn-secondary" onclick="selectFolder()">📂 Ordner</button>
+        <button class="btn-primary" onclick="startBatch()">▶ Start Batch</button>
+        <button class="btn-debug" onclick="toggleDebug()">🐞 Debug</button>
         <span id="status">Bereit</span>
     </div>
 
-    <div class="gallery-container">
-        <div id="gallery" class="gallery-grid">
-            <div class="empty-state">Wähle einen Ordner und starte den Scan.</div>
+    <div class="content-area">
+        <!-- Gallery View -->
+        <div id="galleryView">
+            <div id="gallery" class="gallery-grid">
+                <div class="empty-state">Wähle einen Ordner und starte den Scan.</div>
+            </div>
+        </div>
+
+        <!-- Debug View -->
+        <div id="debugView">
+            <div class="debug-toolbar">
+                <div>
+                    <button class="btn-secondary" onclick="prevImage()">◀ Zurück</button>
+                    <span id="debugFileName" style="margin: 0 10px; font-weight:bold;">Datei laden...</span>
+                    <button class="btn-secondary" onclick="nextImage()">Weiter ▶</button>
+                </div>
+                <div style="font-size: 12px; color: #666;">
+                    Rot: Ausschnitte | Orange: QR-Codes
+                </div>
+            </div>
+            <div class="debug-canvas-container">
+                <canvas id="debugCanvas"></canvas>
+            </div>
         </div>
     </div>
 
     <script>
         const { ipcRenderer } = require('electron');
+        const pathModule = require('path');
 
-        // Ordner Auswahl
+        let isDebugMode = false;
+        let fileList = [];
+        let currentFileIndex = 0;
+
+        // --- UI Logic ---
+
+        function toggleDebug() {
+            isDebugMode = !isDebugMode;
+            const gallery = document.getElementById('galleryView');
+            const debug = document.getElementById('debugView');
+            
+            if (isDebugMode) {
+                gallery.style.display = 'none';
+                debug.style.display = 'flex';
+                // Lade File Liste wenn wir in den Debug Modus wechseln
+                loadFileListForDebug();
+            } else {
+                gallery.style.display = 'block';
+                debug.style.display = 'none';
+            }
+        }
+
         async function selectFolder() {
             const path = await ipcRenderer.invoke('open-folder-dialog');
             if (path) {
                 document.getElementById('pathInput').value = path;
-                document.getElementById('gallery').innerHTML = '<div class="empty-state">Ordner bereit. Klicken Sie auf Start.</div>';
+                if(isDebugMode) loadFileListForDebug();
             }
         }
 
-        function startAnalysis() {
+        function startBatch() {
+            if(isDebugMode) toggleDebug(); // Exit Debug Mode
             const path = document.getElementById('pathInput').value;
-            if(!path) return alert("Bitte erst einen Ordner wählen.");
+            if(!path) return alert("Bitte Ordner wählen.");
             
             document.getElementById('status').innerText = "Verarbeite Bilder...";
-            document.getElementById('gallery').innerHTML = ""; // Reset
-            
+            document.getElementById('gallery').innerHTML = ""; 
             ipcRenderer.send('analysiere-bild', path);
         }
+
+        // --- Debug Logic ---
+
+        async function loadFileListForDebug() {
+            const folderPath = document.getElementById('pathInput').value;
+            if(!folderPath) return;
+
+            fileList = await ipcRenderer.invoke('get-files-in-folder', folderPath);
+            if(fileList.length > 0) {
+                currentFileIndex = 0;
+                analyzeCurrentDebugImage();
+            } else {
+                document.getElementById('debugFileName').innerText = "Keine Bilder gefunden";
+            }
+        }
+
+        function prevImage() {
+            if(currentFileIndex > 0) {
+                currentFileIndex--;
+                analyzeCurrentDebugImage();
+            }
+        }
+
+        function nextImage() {
+            if(currentFileIndex < fileList.length - 1) {
+                currentFileIndex++;
+                analyzeCurrentDebugImage();
+            }
+        }
+
+        function analyzeCurrentDebugImage() {
+            if(fileList.length === 0) return;
+            
+            const folderPath = document.getElementById('pathInput').value;
+            const fileName = fileList[currentFileIndex];
+            const fullPath = pathModule.join(folderPath, fileName);
+            
+            document.getElementById('debugFileName').innerText = `${currentFileIndex + 1}/${fileList.length}: ${fileName}`;
+            document.getElementById('status').innerText = "Debug Analyse...";
+            
+            // Ruft Analyse für EIN Bild auf, mit Debug Flag
+            ipcRenderer.send('analysiere-bild', fullPath, { isDebug: true });
+        }
+
+        // --- Result Handling ---
 
         ipcRenderer.on('analyse-ergebnis', (event, data) => {
             if (data.error) {
                 alert("Fehler: " + data.error);
-                document.getElementById('status').innerText = "Fehler";
                 return;
             }
 
-            if (data.rects) {
-                const count = data.rects.length;
-                const totalText = data.isBatch ? `Batch fertig! ${count} Ausschnitte generiert.` : `Scan fertig! ${count} Ausschnitte.`;
-                document.getElementById('status').innerText = totalText;
-                
-                // Füge neue Elemente hinzu (append), falls wir Zwischenupdates hätten
-                // Hier bekommen wir alles am Ende, also bauen wir neu auf.
-                updateGallery(data.rects);
+            if (isDebugMode) {
+                drawDebugCanvas(data);
+                document.getElementById('status').innerText = "Debug Ansicht";
+            } else {
+                // Batch View Logic
+                if (data.rects) {
+                    const count = data.rects.length;
+                    document.getElementById('status').innerText = data.isBatch ? 
+                        `Batch fertig! ${count} Bilder.` : `Fertig!`;
+                    updateGallery(data.rects);
+                }
             }
         });
+
+        function drawDebugCanvas(data) {
+            const canvas = document.getElementById('debugCanvas');
+            const ctx = canvas.getContext('2d');
+            const img = new Image();
+            
+            img.onload = () => {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                ctx.drawImage(img, 0, 0);
+
+                // Zeichne ROTE Ausschnitte (Rects)
+                if(data.rects) {
+                    ctx.lineWidth = 4;
+                    ctx.strokeStyle = '#ef4444'; // Rot
+                    ctx.fillStyle = '#ef4444';
+                    ctx.font = "bold 24px Arial";
+
+                    data.rects.forEach((rect, i) => {
+                        ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+                        ctx.fillText(`Crop ${i+1}`, rect.x, rect.y - 10);
+                    });
+                }
+
+                // Zeichne ORANGE QR Codes
+                if(data.debug_qrs) {
+                    ctx.lineWidth = 4;
+                    ctx.strokeStyle = '#f97316'; // Orange
+                    ctx.fillStyle = '#f97316';
+                    
+                    data.debug_qrs.forEach(qr => {
+                        ctx.strokeRect(qr.x, qr.y, qr.width, qr.height);
+                        
+                        // Text Label Background
+                        const text = qr.text;
+                        const textWidth = ctx.measureText(text).width;
+                        ctx.fillStyle = "rgba(0,0,0,0.7)";
+                        ctx.fillRect(qr.x, qr.y + qr.height, textWidth + 20, 30);
+                        
+                        // Text
+                        ctx.fillStyle = "#fff";
+                        ctx.font = "16px monospace";
+                        ctx.fillText(text, qr.x + 10, qr.y + qr.height + 20);
+                        
+                        // Reset fill style for next rect
+                        ctx.fillStyle = '#f97316'; 
+                    });
+                }
+            };
+            // Cache Buster für das Bild
+            img.src = data.image + "?t=" + new Date().getTime();
+        }
 
         function updateGallery(rects) {
             const container = document.getElementById('gallery');
             if(container.querySelector('.empty-state')) container.innerHTML = "";
 
             rects.forEach(rect => {
-                // Daten für Anzeige vorbereiten
                 const name = rect.name; 
                 let infoText = "Keine QR-Daten";
-                
                 if (rect.qr_data) {
-                    // Zeige relevante Infos an
                     const d = rect.qr_data;
                     const parts = [];
                     if(d.vorname && d.nachname) parts.push(`${d.vorname} ${d.nachname}`);
                     if(d.klasse) parts.push(d.klasse);
                     if(d.aufgabe) parts.push(`Aufg: ${d.aufgabe}`);
-                    
                     if(parts.length > 0) infoText = parts.join(" • ");
                 }
 
@@ -239,7 +384,7 @@
                 card.className = 'card';
                 card.innerHTML = `
                     <div class="card-img-wrapper">
-                        <img src="${rect.crop_path}?t=${new Date().getTime()}" title="${rect.crop_path}">
+                        <img src="${rect.crop_path}?t=${new Date().getTime()}">
                     </div>
                     <div class="card-body">
                         <div class="card-title">${name}</div>
