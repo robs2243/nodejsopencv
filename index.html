@@ -193,8 +193,14 @@
                     <span id="debugFileName" style="margin: 0 10px; font-weight:bold;">Datei laden...</span>
                     <button class="btn-secondary" onclick="nextImage()">Weiter ▶</button>
                 </div>
-                <div style="font-size: 12px; color: #666;">
-                    Rot: Ausschnitte | Orange: QR-Codes
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <label style="font-size: 12px; display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                        <input type="checkbox" id="checkSaveCrops">
+                        Erweitertes Debugging (Bilder speichern)
+                    </label>
+                    <div style="font-size: 12px; color: #666; border-left: 1px solid #ccc; padding-left: 10px;">
+                        Rot: Ausschnitte | Orange: QR-Codes
+                    </div>
                 </div>
             </div>
             <div class="debug-canvas-container">
@@ -282,12 +288,16 @@
             const folderPath = document.getElementById('pathInput').value;
             const fileName = fileList[currentFileIndex];
             const fullPath = pathModule.join(folderPath, fileName);
+            const saveCrops = document.getElementById('checkSaveCrops').checked;
             
             document.getElementById('debugFileName').innerText = `${currentFileIndex + 1}/${fileList.length}: ${fileName}`;
             document.getElementById('status').innerText = "Debug Analyse...";
             
-            // Ruft Analyse für EIN Bild auf, mit Debug Flag
-            ipcRenderer.send('analysiere-bild', fullPath, { isDebug: true });
+            // Ruft Analyse für EIN Bild auf, mit Debug Flags
+            ipcRenderer.send('analysiere-bild', fullPath, { 
+                isDebug: true, 
+                saveDebugCrops: saveCrops 
+            });
         }
 
         // --- Result Handling ---

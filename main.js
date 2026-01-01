@@ -86,9 +86,8 @@ ipcMain.on('analysiere-bild', async (event, inputPath, options = {}) => {
         processedCount++;
         
         try {
-            // Wir reichen das isDebug Flag weiter an die einzelne Bildverarbeitung
-            const isDebug = options && options.isDebug;
-            const result = await processSingleImage(imagePath, isDebug);
+            // Wir reichen das options Objekt weiter
+            const result = await processSingleImage(imagePath, options);
             lastData = result; 
             if (result && result.rects) {
                 allResults.push(...result.rects);
@@ -137,21 +136,48 @@ ipcMain.on('analysiere-bild', async (event, inputPath, options = {}) => {
     });
 });
 
-function processSingleImage(imagePath, isDebug = false) {
+function processSingleImage(imagePath, options = {}) {
+    // Falls options nur ein boolean ist (Legacy support für alten Code, falls nötig, aber wir haben ja isDebug Flag)
+    // Wir bauen options um, falls es nur "isDebug" war. 
+    // Aber im Aufruf oben habe ich `const isDebug = options && options.isDebug` gemacht.
+    // Daher übergebe ich jetzt das GANZE options Objekt an processSingleImage.
+    
+    // ACHTUNG: Ich muss die Signatur anpassen, da ich oben schon `processSingleImage(imagePath, isDebug)` aufgerufen habe?
+    // Nein, oben habe ich `const result = await processSingleImage(imagePath, isDebug);` geändert?
+    // NEIN, oben steht: `const isDebug = options && options.isDebug;` -> `processSingleImage(imagePath, isDebug);`
+    // Ich ändere also die Signatur hier auf: (imagePath, isDebugOrOptions)
+    
+    // Aber sauberer: Ich ändere den Aufruf oben!
+    
     return new Promise((resolve, reject) => {
         let pyArgs = [imagePath];
+        
+        let isDebug = false;
+        let saveDebugCrops = false;
+
+        // Argument Handling: Checken ob isDebugOrOptions ein Object oder Boolean ist
+        if (typeof options === 'object') {
+            isDebug = options.isDebug;
+            saveDebugCrops = options.saveDebugCrops;
+        } else {
+            isDebug = options; // Fallback
+        }
+
         if (isDebug) {
             pyArgs.push("DEBUG");
         }
+        if (saveDebugCrops) {
+            pyArgs.push("SAVE_CROPS");
+        }
 
-        let options = {
+        let pyOptions = {
             mode: 'text',
             pythonPath: 'python', 
             scriptPath: __dirname,
             args: pyArgs
         };
 
-        PythonShell.run('detector.py', options).then(messages => {
+        PythonShell.run('detector.py', pyOptions).then(messages => {
             const resultString = messages[0];
             try {
                 const data = JSON.parse(resultString);

@@ -48,6 +48,10 @@ try:
     if len(sys.argv) > 2 and sys.argv[2] == "DEBUG":
         crops_folder_name = "debug"
 
+    save_debug_crops = False
+    if len(sys.argv) > 3 and sys.argv[3] == "SAVE_CROPS":
+        save_debug_crops = True
+
     # Ordner für die Ausschnitte erstellen
     crops_dir = os.path.join(folder_path, crops_folder_name)
     if not os.path.exists(crops_dir):
@@ -197,13 +201,15 @@ try:
                         rescue_roi = final_image[roi_y1:roi_y2, roi_x1:roi_x2]
                         
                         if rescue_roi.size > 0:
-                            # Bildverbesserung: Graustufen + CLAHE (Contrast Limited Adaptive Histogram Equalization)
+                            # Bildverbesserung: Graustufen + CLAHE
                             gray_rescue = cv2.cvtColor(rescue_roi, cv2.COLOR_BGR2GRAY)
                             clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
                             enhanced_roi = clahe.apply(gray_rescue)
                             
-                            # Nur zum Debuggen: Man könnte enhanced_roi hier speichern um zu sehen was er sieht
-                            # cv2.imwrite(os.path.join(crops_dir, f"debug_rescue_{crop_counter}.jpg"), enhanced_roi)
+                            # --- DEBUG: Schnipsel speichern ---
+                            if save_debug_crops:
+                                cv2.imwrite(os.path.join(crops_dir, f"debug_rescue_{crop_counter}_raw.jpg"), gray_rescue)
+                                cv2.imwrite(os.path.join(crops_dir, f"debug_rescue_{crop_counter}_clahe.jpg"), enhanced_roi)
 
                             try:
                                 rescue_decoded = decode(enhanced_roi)
